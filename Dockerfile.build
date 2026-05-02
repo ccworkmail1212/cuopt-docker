@@ -1,0 +1,100 @@
+# syntax=docker/dockerfile:1.2
+# Build cuOpt from source — deployable on NVIDIA H200 (Hopper sm_90)
+#
+# Usage:
+#   docker build -f Dockerfile.build -t cuopt-h200:latest .
+#   docker run --gpus all -it cuopt-h200:latest python -c "import cuopt; print(cuopt.__version__)"
+#
+# Build args:
+#   CUDA_VER      — CUDA version for base image  (default: 12.9.0)
+#   UBUNTU_VER    — Ubuntu version               (default: 24.04)
+#   PARALLEL_LEVEL — parallel compile jobs        (default: auto)
+
+ARG CUDA_VER=12.9.0
+ARG UBUNTU_VER=24.04
+
+# ============================================================
+# Stage 1: Build
+# ============================================================
+FROM nvidia/cuda:${CUDA_VER}-devel-ubuntu${UBUNTU_VER} AS builder
+
+ARG PARALLEL_LEVEL=0
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        wget \
+        git \
+        bzip2 \
+        ca-certificates \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install miniforge (ships with mamba, which is faster than conda)
+RUN wget -qO /tmp/miniforge.sh \
+        https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh \
+    && bash /tmp/miniforge.sh -b -p /opt/conda \
+    && rm /tmp/miniforge.sh
+
+ENV PATH="/opt/conda/bin:${PATH}"
+
+# cuOpt does not support strict channel priority
+# Configure aggressive retries for large package downloads
+RUN conda config --set channel_priority flexible \
+    && conda config --set remote_max_retries 10 \
+    && conda config --set remote_backoff_factor 2 \
+    && conda config --set remote_connect_timeout_secs 30
+
+WORKDIR /cuopt
+
+# Copy conda env yaml first — this layer is cached until the yaml changes,
+# avoiding a multi-GB re-download every time source code changes.
+COPY conda/environments/all_cuda-129_arch-x86_64.yaml /tmp/cuopt_env.yaml
+# Strip pip section (docs/viz tools not needed for build/run; causes --user conflict in Docker)
+COPY ci/docker/strip_pip_from_conda_yaml.py /tmp/strip_pip.py
+RUN python3 /tmp/strip_pip.py /tmp/cuopt_env.yaml
+
+# Create conda environment from rapidsai-nightly channel (includes RAPIDS 26.6 nightly packages)
+# (~15-30 min first time, ~8 GB download)
+RUN mamba env create -p /opt/cuopt_env --file /tmp/cuopt_env.yaml \
+    && conda clean -afy
+
+# Copy full source tree
+COPY . .
+
+# Build cuOpt from source
+#   --allgpuarch       : compile for ALL RAPIDS-supported GPU arches, including
+#                        sm_90 (H100/H200 Hopper) — required when building
+#                        without a local GPU present
+#   --skip-tests-build : skip test-binary compilation; saves ~30% build time
+#                        (tests are not needed in a deployment image)
+COPY ci/docker/build_cuopt.sh /tmp/build_cuopt.sh
+# CUOPT_BUILD_ARCHS=deploy → --allgpuarch（含 sm_90a for H200）
+RUN chmod +x /tmp/build_cuopt.sh && PARALLEL_LEVEL=1 CUOPT_BUILD_ARCHS=deploy /tmp/build_cuopt.sh
+
+# ============================================================
+# Stage 2: Runtime — lean image for H200 deployment
+# ============================================================
+FROM nvidia/cuda:${CUDA_VER}-runtime-ubuntu${UBUNTU_VER}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy only the conda env (includes built cuOpt packages + RAPIDS runtime libs)
+COPY --from=builder /opt/conda /opt/conda
+COPY --from=builder /opt/cuopt_env /opt/cuopt_env
+
+ENV PATH="/opt/cuopt_env/bin:/opt/conda/bin:${PATH}" \
+    LD_LIBRARY_PATH="/opt/cuopt_env/lib:/usr/local/cuda/lib64:${LD_LIBRARY_PATH}" \
+    CONDA_PREFIX=/opt/cuopt_env \
+    CONDA_DEFAULT_ENV=/opt/cuopt_env \
+    DEBIAN_FRONTEND=""
+
+WORKDIR /workspace
+
+# Quick smoke test — will print version if build succeeded
+# Remove this CMD in production; replace with your actual entrypoint
+CMD ["/bin/bash"]

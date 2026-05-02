@@ -1,0 +1,18 @@
+# 直接從已編譯好的 cuopt-h200 複製產物到官方 image
+# 不需要重新編譯，秒完成
+
+FROM cuopt-h200:latest AS source
+
+FROM nvidia/cuopt:26.6.0a-cuda12.9-py3.14
+
+ENV PY_DIST=/usr/local/lib/python3.14/dist-packages
+
+COPY --from=source /opt/cuopt_env/lib/libcuopt.so*      ${PY_DIST}/libcuopt/lib64/
+COPY --from=source /opt/cuopt_env/lib/libmps_parser.so* ${PY_DIST}/libcuopt/lib64/
+COPY --from=source /opt/cuopt_env/include/cuopt         ${PY_DIST}/libcuopt/include/cuopt/
+COPY --from=source /opt/cuopt_env/bin/cuopt_cli         ${PY_DIST}/libcuopt/bin/
+COPY --from=source /opt/cuopt_env/bin/cuopt_grpc_server ${PY_DIST}/libcuopt/bin/
+COPY --from=source /opt/cuopt_env/lib/python3.14/site-packages/cuopt        ${PY_DIST}/cuopt/
+COPY --from=source /opt/cuopt_env/lib/python3.14/site-packages/cuopt_server ${PY_DIST}/cuopt_server/
+
+WORKDIR /workspace

@@ -1,0 +1,108 @@
+# syntax=docker/dockerfile:1.2
+# cuOpt 開發容器 — 以 nvidia/cuda:devel-ubuntu24.04 為 base
+#
+# 優點：
+#   - Ubuntu 24.04 內建 GCC 13（支援 OpenMP 5.1）
+#   - devel image 已包含 nvcc + cublas/cusparse/cusolver/curand dev（不需另裝）
+#   - 不安裝大型 CUDA runtime .so，不會讓 WSL2 OOM crash
+#   - Base: nvidia/cuda:12.9.0-devel-ubuntu24.04（官方 NVIDIA，公司允許）
+#   - 新增層：RAPIDS pip + build tools（~1.5GB < 2GB ✅）
+#
+# 啟動：bash run_dev.sh
+
+FROM nvidia/cuda:12.9.0-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 基本 build 工具（nvcc/cublas/cusparse 等已在 devel base image 裡）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ninja-build \
+        git \
+        ccache \
+        make \
+        wget \
+        bzip2 \
+        libbz2-dev \
+        zlib1g-dev \
+        libssl-dev \
+        uuid-dev \
+        libgomp1 \
+        libtbb-dev \
+        libboost-dev \
+        libgmp-dev \
+        libblas-dev \
+        cudss \
+        cuda-profiler-api-12-9 \
+    && rm -rf /var/lib/apt/lists/*
+
+# 安裝 pip + python3-dev（devel image 未預裝）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-pip python3-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# cmake 3.30+（apt 版本太舊）
+RUN python3 -m pip install --no-cache-dir --break-system-packages "cmake>=3.30.4"
+ENV PATH="/usr/local/lib/python3.12/dist-packages/cmake/data/bin:${PATH}"
+
+# RAPIDS pip 套件（只裝 cmake configs + C++ headers，不裝預編譯的 libcuopt.so）
+# libraft-cu12 提供 raft cmake configs + C++ headers（~45MB，輕量）
+# libcuopt-cu12 包含 703MB 預編譯 libcuopt.so，從源碼 build 不需要它
+RUN python3 -m pip install --no-cache-dir --break-system-packages \
+    --extra-index-url https://pypi.anaconda.org/rapidsai-wheels-nightly/simple \
+    "libraft-cu12>=0.0.0a0" \
+    "pylibraft-cu12>=0.0.0a0" \
+    "rmm-cu12>=0.0.0a0" \
+    "rapids-logger>=0.0.0a0"
+
+# 預先 clone 離線 cmake deps（image build 時有網路，進公司後不需要）
+RUN git clone --depth=1 https://github.com/scipopt/papilo.git /opt/cuopt-deps/papilo \
+    && cd /opt/cuopt-deps/papilo \
+    && git fetch --depth=1 origin 741a2b9c8155b249d6df574d758b4d97d4417520 \
+    && git checkout 741a2b9c8155b249d6df574d758b4d97d4417520 \
+    && git submodule update --init --recursive --depth=1
+
+RUN git clone --depth=1 --branch v0.0.8 \
+        https://github.com/dance858/PSLP.git /opt/cuopt-deps/pslp
+
+RUN git clone --depth=1 --branch v3.2 \
+        https://github.com/p-ranav/argparse.git /opt/cuopt-deps/argparse
+
+# CUDSS symlinks（cmake FindCUDSS 期待的目錄結構）
+RUN CUDSS_LIB=$(find /usr -name 'libcudss.so' 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "") && \
+    CUDSS_INC=$(find /usr -name 'cudss.h' 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "") && \
+    if [ -n "$CUDSS_LIB" ] && [ -n "$CUDSS_INC" ]; then \
+        mkdir -p /opt/cudss && \
+        ln -sf "$CUDSS_INC" /opt/cudss/include && \
+        ln -sf "$CUDSS_LIB" /opt/cudss/lib; \
+    fi
+
+ENV CUDSS_DIR=/opt/cudss \
+    FETCHCONTENT_SOURCE_DIR_PAPILO=/opt/cuopt-deps/papilo \
+    FETCHCONTENT_SOURCE_DIR_PSLP=/opt/cuopt-deps/pslp \
+    FETCHCONTENT_SOURCE_DIR_ARGPARSE=/opt/cuopt-deps/argparse \
+    CUDACXX=/usr/local/cuda/bin/nvcc \
+    PARALLEL_LEVEL=2 \
+    CMAKE_CUDA_COMPILER_LAUNCHER=ccache \
+    CMAKE_C_COMPILER_LAUNCHER=ccache \
+    CMAKE_CXX_COMPILER_LAUNCHER=ccache \
+    RAPIDS_DIST=/usr/local/lib/python3.12/dist-packages \
+    DEBIAN_FRONTEND=""
+
+COPY ci/docker/build_cuopt.sh /usr/local/bin/cuopt-build
+RUN chmod +x /usr/local/bin/cuopt-build
+
+WORKDIR /cuopt
+
+CMD ["/bin/bash", "-c", "\
+echo '' && \
+echo '=== cuOpt 開發容器（cuda-devel-ubuntu24.04）===' && \
+echo '  GCC:  '$(gcc --version | head -1) && \
+echo '  nvcc: '$(nvcc --version | grep release | sed 's/.*release //;s/,.*//')  && \
+echo '' && \
+echo '常用指令：' && \
+echo '  cuopt-build                   # 完整 build（NATIVE arch，sm89 for RTX4060）' && \
+echo '  cuopt-build --cache-tool=ccache  # 加 ccache（第二次快很多）' && \
+echo '  ctest --test-dir cpp/build -j4   # C++ 測試' && \
+echo '  pytest python/cuopt/cuopt/tests -v  # Python 測試' && \
+echo '' && \
+exec bash"]

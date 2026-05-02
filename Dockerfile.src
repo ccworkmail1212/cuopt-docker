@@ -1,0 +1,31 @@
+# Dockerfile.src — 打包 cuOpt source code 的 image
+# 用途：把 source code 傳入公司（無外網環境）
+# 大小：~100MB（遠低於 2GB 限制）
+#
+# 建立：
+#   docker build -f Dockerfile.src -t cuopt-src:26.6 .
+#
+# 公司內取出 source code：
+#   docker run --rm cuopt-src:26.6 tar cf - /cuopt | tar xf - -C /workspace/
+#   cd /workspace/cuopt
+
+FROM ubuntu:22.04
+
+WORKDIR /cuopt
+
+# 先複製輕量的設定檔和 Python 原始碼（不含 build 產物）
+COPY pyproject.toml build.sh VERSION LICENSE CHANGELOG.md ./
+COPY python/ ./python/
+COPY cpp/ ./cpp/
+COPY conda/ ./conda/
+COPY ci/ ./ci/
+COPY cmake/ ./cmake/
+COPY thirdparty/ ./thirdparty/
+COPY datasets/ ./datasets/
+
+# 清除 build 產物（如果存在）
+RUN rm -rf cpp/build cpp/build_* \
+    && find . -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true \
+    && find . -name '*.pyc' -delete 2>/dev/null || true \
+    && du -sh /cuopt
+
