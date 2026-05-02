@@ -12,8 +12,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Clone NVIDIA/cuopt source
-        run: git clone --depth=1 https://github.com/NVIDIA/cuopt.git /tmp/cuopt-src
+      - name: Clone ccworkmail1212/cuopt source
+        run: git clone --depth=1 https://github.com/ccworkmail1212/cuopt.git /tmp/cuopt-src
 
       - name: Copy Dockerfile.src into source dir
         run: cp Dockerfile.src /tmp/cuopt-src/
