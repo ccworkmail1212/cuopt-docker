@@ -17,11 +17,15 @@ FROM nvidia/cuda:12.9.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# GCC 13 via PPA（Ubuntu 22.04 預設 GCC 11，需要 GCC 13 for OpenMP 5.1）
+# GCC 13 via ubuntu-toolchain-r PPA（手動加，不用 add-apt-repository，Docker 裡 dbus 不存在）
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        software-properties-common \
         ca-certificates \
-    && add-apt-repository -y ppa:ubuntu-toolchain-r/test \
+        gnupg \
+        curl \
+    && curl -fsSL "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x60C317803A41BA51845E371A1E9377A2BA9EF27F" \
+        | gpg --dearmor -o /etc/apt/trusted.gpg.d/ubuntu-toolchain-r.gpg \
+    && echo "deb https://ppa.launchpadcontent.net/ubuntu-toolchain-r/test/ubuntu jammy main" \
+        > /etc/apt/sources.list.d/ubuntu-toolchain-r.list \
     && apt-get update && apt-get install -y --no-install-recommends \
         gcc-13 \
         g++-13 \
