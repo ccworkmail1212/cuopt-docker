@@ -42,9 +42,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # cmake 3.30+（apt 版本太舊，pip 的 cmake 只有 80MB）
-RUN python3 -m pip install --break-system-packages --no-cache-dir "cmake>=3.30.4" && \
+RUN python3 -m pip install --no-cache-dir "cmake>=3.30.4" && \
     ln -sf /usr/bin/python3 /usr/local/bin/python
-ENV PATH="/usr/local/lib/python3.10/dist-packages/cmake/data/bin:${PATH}"
+ENV PATH="/usr/local/lib/python3/dist-packages/cmake/data/bin:/usr/local/lib/python3.10/dist-packages/cmake/data/bin:${PATH}"
 
 # ── RAPIDS cmake configs + headers（從官方 image COPY，保持原始目錄結構）────
 # thrust-header-search.cmake 用相對路徑找 headers，必須保持和官方 image 相同的
