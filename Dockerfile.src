@@ -13,8 +13,11 @@ FROM ubuntu:22.04
 
 WORKDIR /cuopt
 
-# 先複製輕量的設定檔和 Python 原始碼（不含 build 產物）
-COPY pyproject.toml build.sh VERSION LICENSE CHANGELOG.md ./
+# 根目錄必要檔案
+COPY pyproject.toml build.sh VERSION LICENSE CHANGELOG.md RAPIDS_BRANCH ./
+# 開發腳本（公司使用必要）
+COPY run_dev.sh run_test_py.sh DOCKER_BUILD_GUIDE.md ./
+# 原始碼目錄
 COPY python/ ./python/
 COPY cpp/ ./cpp/
 COPY conda/ ./conda/
