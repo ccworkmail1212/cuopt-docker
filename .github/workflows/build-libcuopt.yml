@@ -31,11 +31,24 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /tmp/ccache
-          key: cuopt-ccache-u22-${{ hashFiles('/tmp/cuopt-src/cpp/**/*.cu', '/tmp/cuopt-src/cpp/**/*.cpp') }}
-          restore-keys: |
-            cuopt-ccache-u22-
+          key: cuopt-ccache-u22-${{ github.run_number }}
+          restore-keys: cuopt-ccache-u22-
 
-      - name: Build libcuopt.so inside Ubuntu 22.04 dev container
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Ubuntu 22.04 dev image (not pushed, local only)
+        uses: docker/build-push-action@v5
+        with:
+          context: /tmp/cuopt-src
+          file: /tmp/cuopt-src/Dockerfile.dev-official
+          push: false
+          load: true
+          tags: cuopt-dev-u22:local
+          cache-from: type=gha,scope=cuopt-dev-u22
+          cache-to: type=gha,mode=max,scope=cuopt-dev-u22
+
+      - name: Build libcuopt.so inside Ubuntu 22.04 container
         run: |
           docker run --rm \
             -v /tmp/cuopt-src:/cuopt \
@@ -43,13 +56,19 @@ jobs:
             -v /tmp/cuopt-src/ci/docker/build_cuopt.sh:/usr/local/bin/cuopt-build \
             --workdir /cuopt \
             -e PARALLEL_LEVEL=4 \
-            workcc/cuopt-dev:26.6.0a \
-            bash -c "chmod +x /usr/local/bin/cuopt-build && cuopt-build 2>&1 | tail -20"
+            cuopt-dev-u22:local \
+            bash -c "
+            chmod +x /usr/local/bin/cuopt-build
+            cuopt-build 2>&1 | tail -30
+            echo '--- Verification ---'
+            ldd cpp/build/libcuopt.so | grep GLIBC | awk '{print \$1}' | sort -u | tail -5
+            "
 
-      - name: Verify build artifacts
+      - name: Verify artifacts
         run: |
-          ls -lh /tmp/cuopt-src/cpp/build/libcuopt.so
-          ls -lh /tmp/cuopt-src/cpp/build/cuopt_cli
+          echo "libcuopt.so: $(ls -lh /tmp/cuopt-src/cpp/build/libcuopt.so)"
+          echo "cuopt_cli:   $(ls -lh /tmp/cuopt-src/cpp/build/cuopt_cli)"
+          echo "GLIBC max:   $(objdump -T /tmp/cuopt-src/cpp/build/libcuopt.so | grep GLIBC | awk '{print $5}' | sort -V | tail -1)"
 
       - name: Upload libcuopt.so artifact
         uses: actions/upload-artifact@v4
@@ -58,4 +77,5 @@ jobs:
           path: |
             /tmp/cuopt-src/cpp/build/libcuopt.so
             /tmp/cuopt-src/cpp/build/cuopt_cli
-          retention-days: 7
+            /tmp/cuopt-src/ci/docker/libglibc_compat.so
+          retention-days: 30
