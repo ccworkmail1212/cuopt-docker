@@ -1,0 +1,79 @@
+name: Push Image Chunks to Docker Hub
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: 'Source image (e.g. workcc/cuopt-full:26.6)'
+        required: true
+        default: 'workcc/cuopt-full:26.6'
+      chunk_name:
+        description: 'Chunk repo prefix (e.g. cuopt-full)'
+        required: true
+        default: 'cuopt-full'
+      tag:
+        description: 'Tag'
+        required: true
+        default: '26.6'
+      chunk_size_mb:
+        description: 'Chunk size in MB'
+        required: true
+        default: '500'
+
+jobs:
+  split-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: workcc
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Pull source image
+        run: docker pull ${{ inputs.image }}
+
+      - name: Save, compress, split
+        run: |
+          mkdir -p /tmp/chunks
+          docker save ${{ inputs.image }} | gzip > /tmp/chunks/image.tar.gz
+          ls -lh /tmp/chunks/image.tar.gz
+          split -b ${{ inputs.chunk_size_mb }}m /tmp/chunks/image.tar.gz /tmp/chunks/part_
+          echo "Total chunks: $(ls /tmp/chunks/part_* | wc -l)"
+          ls -lh /tmp/chunks/part_*
+
+      - name: Build and push each chunk
+        run: |
+          for part in /tmp/chunks/part_*; do
+            suffix=$(basename $part | sed 's/part_//')
+            tag="workcc/${{ inputs.chunk_name }}-part-${suffix}:${{ inputs.tag }}"
+
+            mkdir -p /tmp/build_${suffix}
+            cp $part /tmp/build_${suffix}/chunk
+            cat > /tmp/build_${suffix}/Dockerfile << 'EOF'
+          FROM alpine
+          COPY chunk /chunk
+          CMD ["cat", "/chunk"]
+          EOF
+
+            echo "Building and pushing ${tag}..."
+            docker build -t ${tag} /tmp/build_${suffix}/
+            docker push ${tag}
+            echo "✅ ${tag} pushed"
+          done
+
+      - name: Summary
+        run: |
+          echo "## Pushed chunks for ${{ inputs.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Pull commands (on company machine):" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          for part in /tmp/chunks/part_*; do
+            suffix=$(basename $part | sed 's/part_//')
+            echo "docker pull workcc/${{ inputs.chunk_name }}-part-${suffix}:${{ inputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "# Reassemble:" >> $GITHUB_STEP_SUMMARY
+          suffixes=$(ls /tmp/chunks/part_* | xargs -I{} basename {} | sed 's/part_//' | tr '\n' ' ')
+          echo "cat $(echo $suffixes | tr ' ' '\n' | sed 's/.*/part_&/' | tr '\n' ' ') | docker load" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
