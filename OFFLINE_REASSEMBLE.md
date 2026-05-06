@@ -14,16 +14,28 @@
 
 ## 可用的 Images
 
-| 完整 Image | Chunk 前綴 | 還原後大小 | GPU 限制 | 備註 |
-|---|---|---|---|---|
-| `workcc/cuopt-full:26.6` | `cuopt-full-part-XX` | ~9.5GB | **H200 only（sm_90a）** | 含 scheduling 功能，已 cross-compile for H200 |
-| `workcc/cuopt-allinone:26.6` | `cuopt-allinone-part-XX` | ~8.6GB | 依 build 時 GPU | 含 build 工具，可重編 |
+### H200 專用
 
-> ⚠️ **重要：`workcc/cuopt-full:26.6` 只能在 H200（SM90a）上執行**
+| 完整 Image | Chunk 前綴 | 大小 | 用途 |
+|---|---|---|---|
+| `workcc/cuopt-full-h200:26.6` | `cuopt-full-h200-part-XX` | ~9.5GB | **只能 run**，直接執行 Python 程式 |
+| `workcc/cuopt-full-h200-sm90a:26.6` | `cuopt-full-h200-sm90a-part-XX` | ~10.8GB | **可以 build**，含 build 環境 + rapids-cmake，可在 H200 跑 `cuopt-build` |
+
+> ⚠️ **兩個 image 都只能在 H200（CUDA SM90a）上使用**
 >
-> 這個 image 的 `libcuopt.so` 是專門為 H200（CUDA SM90a）cross-compile 的，
-> **無法在其他 GPU（RTX 4060、A100、V100 等）上跑**。
-> 如需在其他 GPU 上使用，請用 `workcc/cuopt-allinone:26.6` 自行重編。
+> `libcuopt.so` 是專為 H200（sm_90a）cross-compile，無法在其他 GPU 上跑。
+
+**如何選擇：**
+- 只需要**執行** cuOpt 程式 → 用 `cuopt-full-h200`（較小）
+- 需要**修改 C++ 並重新 build** → 用 `cuopt-full-h200-sm90a`（含 build 工具）
+
+---
+
+### 開發用（可重編，不限 GPU）
+
+| 完整 Image | Chunk 前綴 | 大小 | 用途 |
+|---|---|---|---|
+| `workcc/cuopt-allinone:26.6` | `cuopt-allinone-part-XX` | ~8.6GB | 含 build 工具，在**任何 GPU** 上可重編 |
 
 ---
 
