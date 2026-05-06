@@ -14,10 +14,16 @@
 
 ## 可用的 Images
 
-| 完整 Image | Chunk 前綴 | Chunk 數量 | 還原後大小 |
-|---|---|---|---|
-| `workcc/cuopt-full:26.6` | `cuopt-full-part-XX` | 10 個 | ~9.5GB |
-| `workcc/cuopt-allinone:26.6` | `cuopt-allinone-part-XX` | 9 個 | ~8.6GB |
+| 完整 Image | Chunk 前綴 | 還原後大小 | GPU 限制 | 備註 |
+|---|---|---|---|---|
+| `workcc/cuopt-full:26.6` | `cuopt-full-part-XX` | ~9.5GB | **H200 only（sm_90a）** | 含 scheduling 功能，已 cross-compile for H200 |
+| `workcc/cuopt-allinone:26.6` | `cuopt-allinone-part-XX` | ~8.6GB | 依 build 時 GPU | 含 build 工具，可重編 |
+
+> ⚠️ **重要：`workcc/cuopt-full:26.6` 只能在 H200（SM90a）上執行**
+>
+> 這個 image 的 `libcuopt.so` 是專門為 H200（CUDA SM90a）cross-compile 的，
+> **無法在其他 GPU（RTX 4060、A100、V100 等）上跑**。
+> 如需在其他 GPU 上使用，請用 `workcc/cuopt-allinone:26.6` 自行重編。
 
 ---
 
